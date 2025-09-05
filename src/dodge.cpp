@@ -57,7 +57,7 @@ class wayfire_dodge : public wf::plugin_interface_t
 
     wf::signal::connection_t<wf::view_activated_state_signal> view_activated =
         [=] (wf::view_activated_state_signal *ev)
-    {LOGI("view_activated");
+    {
 		if (!progression.running())
 		{
             view_from = last_focused_view;
@@ -66,17 +66,16 @@ class wayfire_dodge : public wf::plugin_interface_t
         last_focused_view = wf::get_core().seat->get_active_view();
         if (!view_from || !view_to || view_from == view_to || progression.running())
         {
-            LOGI("Skipping dodge effect");
             return;
         }
         view_bring_to_front(view_to);
-        if (!view_from->get_transformed_node()->get_transformer(dodge_transformer_from))
+        if (!view_from->get_transformed_node()->get_transformer<wf::scene::view_2d_transformer_t>(dodge_transformer_from))
         {
             tr_from = std::make_shared<wf::scene::view_2d_transformer_t>(view_from);
             view_from->get_transformed_node()->add_transformer(tr_from, wf::TRANSFORMER_2D, dodge_transformer_from);
             view_from->get_output()->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
         }
-        if (!view_to->get_transformed_node()->get_transformer(dodge_transformer_to))
+        if (!view_to->get_transformed_node()->get_transformer<wf::scene::view_2d_transformer_t>(dodge_transformer_to))
         {
             tr_to = std::make_shared<wf::scene::view_2d_transformer_t>(view_to);
             view_to->get_transformed_node()->add_transformer(tr_to, wf::TRANSFORMER_2D, dodge_transformer_to);
@@ -88,16 +87,21 @@ class wayfire_dodge : public wf::plugin_interface_t
 
     wf::signal::connection_t<wf::view_mapped_signal> view_mapped =
         [=] (wf::view_mapped_signal *ev)
-    {LOGI("view_mapped");
+    {
         ev->view->connect(&view_activated);
     };
 
     wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped =
         [=] (wf::view_unmapped_signal *ev)
-    {LOGI("view_unmapped");
-        if (ev->view == last_focused_view)
+    {
+        last_focused_view = wf::get_core().seat->get_active_view();
+        if (ev->view == view_from)
         {
-            last_focused_view = nullptr;
+            view_from = nullptr;
+        }
+        if (ev->view == view_to)
+        {
+            view_to = nullptr;
         }
     };
 
@@ -121,6 +125,8 @@ class wayfire_dodge : public wf::plugin_interface_t
         }
         view_from = nullptr;
         view_to = nullptr;
+        tr_from = nullptr;
+        tr_to = nullptr;
     }
 
     bool step_animation()
@@ -131,7 +137,6 @@ class wayfire_dodge : public wf::plugin_interface_t
         //tr_from->translation_y = progression.progress();
         tr_to->translation_x = std::sin(-progression.progress() * M_PI) * move_dist;
         //tr_to->translation_y = progression.progress();
-        LOGI("animation progress: ", progression.progress());
         if (progression.progress() > 0.5 && !view_to_focused)
         {
             wf::get_core().seat->focus_view(view_from);
