@@ -50,8 +50,8 @@ class wayfire_dodge : public wf::plugin_interface_t
   public:
     void init() override
     {
-        //wf::get_core().connect(&focus_request);
         wf::get_core().connect(&view_mapped);
+        wf::get_core().connect(&view_unmapped);
         this->progression.set(0, 0);
     }
 
@@ -64,7 +64,7 @@ class wayfire_dodge : public wf::plugin_interface_t
             view_to = ev->view;
         }
         last_focused_view = wf::get_core().seat->get_active_view();
-        if (!view_from || !view_to || view_from == view_to)
+        if (!view_from || !view_to || view_from == view_to || progression.running())
         {
             LOGI("Skipping dodge effect");
             return;
@@ -92,10 +92,13 @@ class wayfire_dodge : public wf::plugin_interface_t
         ev->view->connect(&view_activated);
     };
 
-    wf::signal::connection_t<wf::view_focus_request_signal> focus_request =
-        [=] (wf::view_focus_request_signal *ev)
-    {LOGI("focus_request");
-        ev->carried_out = true;
+    wf::signal::connection_t<wf::view_unmapped_signal> view_unmapped =
+        [=] (wf::view_unmapped_signal *ev)
+    {LOGI("view_unmapped");
+        if (ev->view == last_focused_view)
+        {
+            last_focused_view = nullptr;
+        }
     };
 
     void damage_views()
