@@ -58,17 +58,23 @@ class wayfire_dodge : public wf::plugin_interface_t
     wf::signal::connection_t<wf::view_activated_state_signal> view_activated =
         [=] (wf::view_activated_state_signal *ev)
     {
+        if (ev->view == wf::get_core().seat->get_active_view())
+        {
+            last_focused_view = wf::get_core().seat->get_active_view();
+            return;
+        }
 		if (!progression.running())
 		{
             view_from = last_focused_view;
             view_to = ev->view;
         }
-        last_focused_view = wf::get_core().seat->get_active_view();
         if (!view_from || !view_to || view_from == view_to || progression.running())
         {
             return;
         }
-        view_bring_to_front(view_to);
+            LOGI("view_from: ", view_from->get_app_id());
+            LOGI("view_to: ", view_to->get_app_id());
+        view_bring_to_front(view_from);
         if (!view_from->get_transformed_node()->get_transformer<wf::scene::view_2d_transformer_t>(dodge_transformer_from))
         {
             tr_from = std::make_shared<wf::scene::view_2d_transformer_t>(view_from);
@@ -139,8 +145,8 @@ class wayfire_dodge : public wf::plugin_interface_t
         //tr_to->translation_y = progression.progress();
         if (progression.progress() > 0.5 && !view_to_focused)
         {
-            wf::get_core().seat->focus_view(view_from);
-            view_bring_to_front(view_from);
+            wf::get_core().seat->focus_view(view_to);
+            view_bring_to_front(view_to);
             view_to_focused = true;
         }
         return progression.running();
