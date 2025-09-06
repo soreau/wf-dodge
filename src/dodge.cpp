@@ -1,7 +1,7 @@
 /*
  * The MIT License (MIT)
  *
- * Copyright (c) 2025 Scott Moreau
+ * Copyright (c) 2025 Scott Moreau <oreaus@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+#include <set>
 #include <cmath>
 #include <wayfire/core.hpp>
 #include <wayfire/seat.hpp>
@@ -32,21 +33,40 @@
 #include <wayfire/view-transform.hpp>
 #include <wayfire/render-manager.hpp>
 #include <wayfire/window-manager.hpp>
+#include <wayfire/scene-operations.hpp>
 #include <wayfire/signal-definitions.hpp>
+#include <wayfire/plugins/common/util.hpp>
 
 namespace wf
 {
 namespace dodge
 {
-static std::string dodge_transformer_from = "dodge_transformer_from";
-static std::string dodge_transformer_to = "dodge_transformer_to";
+static std::string dodge_transformer_name = "dodge";
+
+// Simple structure for each dodging view
+struct dodge_view_data
+{
+    wayfire_view view;
+    std::shared_ptr<wf::scene::view_2d_transformer_t> transformer;
+    wf::pointf_t direction;
+};
+
+// Helper function to check if two boxes intersect
+bool boxes_intersect(const wlr_box &a, const wlr_box &b)
+{
+    return !(a.x >= b.x + b.width || 
+             b.x >= a.x + a.width || 
+             a.y >= b.y + b.height || 
+             b.y >= a.y + a.height);
+}
+
 class wayfire_dodge : public wf::plugin_interface_t
 {
-    wayfire_view view_from, view_to, last_focused_view;
-    std::shared_ptr<wf::scene::view_2d_transformer_t> tr_from, tr_to;
-    wf::animation::simple_animation_t progression{wf::create_option(2000)};
+    std::vector<dodge_view_data> views_from;
+    wayfire_view view_to, last_focused_view;
+    wf::animation::simple_animation_t progression{wf::create_option(1000)};
     bool view_to_focused;
-    wf::pointf_t direction;
+    std::set<wf::output_t*> active_outputs;
 
   public:
     void init() override
@@ -64,29 +84,75 @@ class wayfire_dodge : public wf::plugin_interface_t
             last_focused_view = wf::get_core().seat->get_active_view();
             return;
         }
-		if (!progression.running())
-		{
-            view_from = last_focused_view;
-            view_to = ev->view;
-        }
-        if (!view_from || !view_to || view_from == view_to || progression.running())
+
+        if (progression.running())
         {
             return;
         }
-        view_bring_to_front(view_from);
-        if (!view_from->get_transformed_node()->get_transformer<wf::scene::view_2d_transformer_t>(dodge_transformer_from))
+
+        view_to = ev->view;
+        if (!last_focused_view || !view_to || last_focused_view == view_to)
         {
-            tr_from = std::make_shared<wf::scene::view_2d_transformer_t>(view_from);
-            view_from->get_transformed_node()->add_transformer(tr_from, wf::TRANSFORMER_2D, dodge_transformer_from);
-            view_from->get_output()->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
+            return;
         }
-        if (!view_to->get_transformed_node()->get_transformer<wf::scene::view_2d_transformer_t>(dodge_transformer_to))
+
+        auto to_bb = view_to->get_bounding_box();
+
+        // Find overlapping views
+        std::vector<wayfire_view> overlapping_views;
+        for (auto& view : wf::get_core().get_all_views())
         {
-            tr_to = std::make_shared<wf::scene::view_2d_transformer_t>(view_to);
-            view_to->get_transformed_node()->add_transformer(tr_to, wf::TRANSFORMER_2D, dodge_transformer_to);
-            view_to->get_output()->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
+            if (!view || view == view_to || !view->is_mapped())
+            {
+                continue;
+            }
+
+            auto toplevel = wf::toplevel_cast(view);
+            if (!toplevel)
+            {
+                continue;
+            }
+
+            auto view_bb = view->get_bounding_box();
+
+            if (wf::get_focus_timestamp(view_to) < wf::get_focus_timestamp(view) && boxes_intersect(to_bb, view_bb))
+            {
+                overlapping_views.push_back(view);
+            }
         }
-        compute_direction();
+
+        if (overlapping_views.empty())
+        {
+            return;
+        }
+
+        // Keep the current focused view in front initially (this prevents jumping)
+        view_bring_to_front(last_focused_view);
+
+        // Setup overlapping views with fan directions
+        for (size_t i = 0; i < overlapping_views.size(); ++i)
+        {
+            dodge_view_data view_data;
+            view_data.view = overlapping_views[i];
+            view_data.transformer = std::make_shared<wf::scene::view_2d_transformer_t>(view_data.view);
+            auto direction = compute_direction(overlapping_views[i], view_to);
+
+            view_data.direction.x = direction.x;
+            view_data.direction.y = direction.y;
+            
+            view_data.view->get_transformed_node()->add_transformer(view_data.transformer, 
+                                                                   wf::TRANSFORMER_2D, 
+                                                                   dodge_transformer_name);
+            
+            if (active_outputs.find(view_data.view->get_output()) == active_outputs.end())
+            {
+                view_data.view->get_output()->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
+                active_outputs.insert(view_data.view->get_output());
+            }
+            
+            views_from.push_back(view_data);
+        }
+
         view_to_focused = false;
         this->progression.animate(0, 1);
     };
@@ -101,69 +167,95 @@ class wayfire_dodge : public wf::plugin_interface_t
         [=] (wf::view_unmapped_signal *ev)
     {
         last_focused_view = wf::get_core().seat->get_active_view();
-        if (ev->view == view_from)
-        {
-            view_from = nullptr;
-        }
         if (ev->view == view_to)
         {
             view_to = nullptr;
         }
+        
+        views_from.erase(std::remove_if(views_from.begin(), views_from.end(),
+                                       [ev](const dodge_view_data& data) {
+                                           return data.view == ev->view;
+                                       }), views_from.end());
     };
 
-    double magnitude(int x, int y) {
+    double magnitude(int x, int y)
+    {
         return std::sqrt(x * x + y * y);
     }
 
-    void compute_direction()
+    wf::pointf_t compute_direction(wayfire_view from, wayfire_view to)
     {
-        auto from_bb = view_from->get_bounding_box();
-        auto to_bb = view_to->get_bounding_box();
+        auto from_bb   = from->get_bounding_box();
+        auto to_bb     = to->get_bounding_box();
         auto from_center = wf::point_t{from_bb.x + from_bb.width / 2, from_bb.y + from_bb.height / 2};
-        auto to_center = wf::point_t{to_bb.x + to_bb.width / 2, to_bb.y + to_bb.height / 2};
+        auto to_center   = wf::point_t{to_bb.x + to_bb.width / 2, to_bb.y + to_bb.height / 2};
         auto x = double(from_center.x - to_center.x);
         auto y = double(from_center.y - to_center.y);
         auto m = magnitude(x, y);
+        if (m == 0)
+        {
+            return wf::pointf_t{0, 0};
+        }
         x /= m;
         y /= m;
-        direction = wf::pointf_t{std::asin(x), std::asin(y)};
+        return wf::pointf_t{std::asin(x), std::asin(y)};
     }
 
     void damage_views()
     {
-        view_from->damage();
-        view_to->damage();
+        for (auto& view_data : views_from)
+        {
+            view_data.view->damage();
+        }
+        if (view_to)
+        {
+            view_to->damage();
+        }
     }
 
     void finish_animation()
     {
-        if (view_from)
+        for (auto& view_data : views_from)
         {
-            view_from->get_output()->render->rem_effect(&dodge_animation_hook);
-            view_from->get_transformed_node()->rem_transformer(dodge_transformer_from);
+            view_data.view->get_transformed_node()->rem_transformer(dodge_transformer_name);
         }
-        if (view_to)
+
+        for (auto& output : active_outputs)
         {
-            view_to->get_output()->render->rem_effect(&dodge_animation_hook);
-            view_to->get_transformed_node()->rem_transformer(dodge_transformer_to);
+            output->render->rem_effect(&dodge_animation_hook);
         }
-        view_from = nullptr;
+
+        active_outputs.clear();
+        views_from.clear();
         view_to = nullptr;
-        tr_from = nullptr;
-        tr_to = nullptr;
     }
 
     bool step_animation()
     {
-        auto from_bb = view_from->get_bounding_box();
+        if (!view_to || !last_focused_view)
+        {
+            return false;
+        }
+
         auto to_bb = view_to->get_bounding_box();
-        auto move_dist_x = std::min(from_bb.width, to_bb.width) * direction.x * 0.5;
-        auto move_dist_y = std::min(from_bb.height, to_bb.height) * direction.y * 0.5;
-        tr_from->translation_x = std::sin(progression.progress() * M_PI) * move_dist_x;
-        tr_from->translation_y = std::sin(progression.progress() * M_PI) * move_dist_y;
-        tr_to->translation_x = std::sin(-progression.progress() * M_PI) * move_dist_x;
-        tr_to->translation_y = std::sin(-progression.progress() * M_PI) * move_dist_y;
-        if (progression.progress() > 0.5 && !view_to_focused)
+
+        double progress = progression.progress();
+
+        // Animate overlapping views with speed-adjusted timing
+        for (auto& view_data : views_from)
+        {
+            auto from_bb = view_data.view->get_bounding_box();
+            auto move_dist_x = std::max(from_bb.width, to_bb.width);
+            auto move_dist_y = std::max(from_bb.height, to_bb.height);
+
+            double move_x = move_dist_x * view_data.direction.x;
+            double move_y = move_dist_y * view_data.direction.y;
+
+            view_data.transformer->translation_x = std::sin(progress * M_PI) * move_x;
+            view_data.transformer->translation_y = std::sin(progress * M_PI) * move_y;
+        }
+
+        if (progress > 0.5 && !view_to_focused)
         {
             wf::get_core().seat->focus_view(view_to);
             view_bring_to_front(view_to);
@@ -186,16 +278,9 @@ class wayfire_dodge : public wf::plugin_interface_t
 
     void fini() override
     {
-        if (view_from)
-        {
-            view_from->get_output()->render->rem_effect(&dodge_animation_hook);
-            view_from->get_transformed_node()->rem_transformer(dodge_transformer_from);
-        }
-        if (view_to)
-        {
-            view_to->get_output()->render->rem_effect(&dodge_animation_hook);
-            view_to->get_transformed_node()->rem_transformer(dodge_transformer_to);
-        }
+        finish_animation();
+        wf::get_core().disconnect(&view_mapped);
+        wf::get_core().disconnect(&view_unmapped);
     }
 };
 }
