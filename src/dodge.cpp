@@ -53,12 +53,12 @@ struct dodge_view_data
 };
 
 // Helper function to check if two boxes intersect
-bool boxes_intersect(const wlr_box &a, const wlr_box &b)
+bool boxes_intersect(const wlr_box & a, const wlr_box & b)
 {
-    return !(a.x >= b.x + b.width || 
-             b.x >= a.x + a.width || 
-             a.y >= b.y + b.height || 
-             b.y >= a.y + a.height);
+    return !(a.x >= b.x + b.width ||
+        b.x >= a.x + a.width ||
+        a.y >= b.y + b.height ||
+        b.y >= a.y + a.height);
 }
 
 class wayfire_dodge : public wf::plugin_interface_t
@@ -90,7 +90,7 @@ class wayfire_dodge : public wf::plugin_interface_t
         }
 
         view_to = ev->view;
-        if (!last_focused_view || !view_to || last_focused_view == view_to)
+        if (!last_focused_view || !view_to || (last_focused_view == view_to))
         {
             return;
         }
@@ -101,7 +101,7 @@ class wayfire_dodge : public wf::plugin_interface_t
         std::vector<wayfire_view> overlapping_views;
         for (auto& view : wf::get_core().get_all_views())
         {
-            if (!view || view == view_to || !view->is_mapped())
+            if (!view || (view == view_to) || !view->is_mapped())
             {
                 continue;
             }
@@ -114,7 +114,8 @@ class wayfire_dodge : public wf::plugin_interface_t
 
             auto view_bb = view->get_bounding_box();
 
-            if (wf::get_focus_timestamp(view_to) < wf::get_focus_timestamp(view) && boxes_intersect(to_bb, view_bb))
+            if ((wf::get_focus_timestamp(view_to) < wf::get_focus_timestamp(view)) &&
+                boxes_intersect(to_bb, view_bb))
             {
                 overlapping_views.push_back(view);
             }
@@ -153,8 +154,10 @@ class wayfire_dodge : public wf::plugin_interface_t
                         break;
                     }
                 }
+
                 continue;
             }
+
             view_data.bb = view_data.view->get_bounding_box();
             auto direction = compute_direction(overlapping_views[i], view_to, view_data.bb);
 
@@ -162,8 +165,9 @@ class wayfire_dodge : public wf::plugin_interface_t
             view_data.direction.y = direction.y;
 
             view_data.transformer = std::make_shared<wf::scene::view_2d_transformer_t>(view_data.view);
-            view_data.view->get_transformed_node()->add_transformer(view_data.transformer, wf::TRANSFORMER_2D, dodge_transformer_name);
-            
+            view_data.view->get_transformed_node()->add_transformer(view_data.transformer, wf::TRANSFORMER_2D,
+                dodge_transformer_name);
+
             views_from.push_back(view_data);
         }
 
@@ -185,11 +189,12 @@ class wayfire_dodge : public wf::plugin_interface_t
         {
             view_to = nullptr;
         }
-        
+
         views_from.erase(std::remove_if(views_from.begin(), views_from.end(),
-                                       [ev](const dodge_view_data& data) {
-                                           return data.view == ev->view;
-                                       }), views_from.end());
+            [ev] (const dodge_view_data& data)
+        {
+            return data.view == ev->view;
+        }), views_from.end());
     };
 
     double magnitude(int x, int y)
@@ -199,7 +204,7 @@ class wayfire_dodge : public wf::plugin_interface_t
 
     wf::pointf_t compute_direction(wayfire_view from, wayfire_view to, wf::geometry_t from_bb)
     {
-        auto to_bb     = to->get_bounding_box();
+        auto to_bb = to->get_bounding_box();
         auto from_center = wf::point_t{from_bb.x + from_bb.width / 2, from_bb.y + from_bb.height / 2};
         auto to_center   = wf::point_t{to_bb.x + to_bb.width / 2, to_bb.y + to_bb.height / 2};
         auto x = double(from_center.x - to_center.x);
@@ -209,6 +214,7 @@ class wayfire_dodge : public wf::plugin_interface_t
         {
             return wf::pointf_t{0, 0};
         }
+
         auto nx = x / m;
         auto ny = y / m;
         x = nx * std::abs(1.0 / nx);
@@ -222,6 +228,7 @@ class wayfire_dodge : public wf::plugin_interface_t
         {
             view_data.view->damage();
         }
+
         if (view_to)
         {
             view_to->damage();
@@ -259,8 +266,10 @@ class wayfire_dodge : public wf::plugin_interface_t
         for (auto& view_data : views_from)
         {
             auto from_bb = view_data.bb;
-            double move_dist_x = std::min(from_bb.x + from_bb.width - to_bb.x, to_bb.x + to_bb.width - from_bb.x);
-            double move_dist_y = std::min(from_bb.y + from_bb.height - to_bb.y, to_bb.y + to_bb.height - from_bb.y);
+            double move_dist_x = std::min(from_bb.x + from_bb.width - to_bb.x,
+                to_bb.x + to_bb.width - from_bb.x);
+            double move_dist_y = std::min(from_bb.y + from_bb.height - to_bb.y,
+                to_bb.y + to_bb.height - from_bb.y);
 
             if (std::string(direction) == "cardinal")
             {
@@ -280,12 +289,13 @@ class wayfire_dodge : public wf::plugin_interface_t
             view_data.transformer->translation_y = std::sin(progress * M_PI) * move_y;
         }
 
-        if (progress > 0.5 && !view_to_focused)
+        if ((progress > 0.5) && !view_to_focused)
         {
             wf::get_core().seat->focus_view(view_to);
             view_bring_to_front(view_to);
             view_to_focused = true;
         }
+
         return progression.running();
     }
 
