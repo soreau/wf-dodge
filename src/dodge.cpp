@@ -65,6 +65,7 @@ class wayfire_dodge : public wf::plugin_interface_t
 {
     std::vector<dodge_view_data> views_from;
     wayfire_view view_to, last_focused_view;
+    wf::option_wrapper_t<std::string> direction{"dodge/direction"};
     wf::option_wrapper_t<wf::animation_description_t> animation_duration{"dodge/duration"};
     wf::animation::simple_animation_t progression{animation_duration};
     bool view_to_focused;
@@ -139,15 +140,26 @@ class wayfire_dodge : public wf::plugin_interface_t
         {
             dodge_view_data view_data;
             view_data.view = overlapping_views[i];
-            if (view_data.view->get_transformed_node()->get_transformer(dodge_transformer_name))
+            if (auto tr = view_data.view->get_transformed_node()->get_transformer(dodge_transformer_name))
             {
+                for (auto& vd : views_from)
+                {
+                    if (vd.transformer == tr)
+                    {
+                        auto direction = compute_direction(vd.view, view_to, vd.bb);
+
+                        vd.direction.x = direction.x;
+                        vd.direction.y = direction.y;
+                        break;
+                    }
+                }
                 continue;
             }
-            auto direction = compute_direction(overlapping_views[i], view_to);
+            view_data.bb = view_data.view->get_bounding_box();
+            auto direction = compute_direction(overlapping_views[i], view_to, view_data.bb);
 
             view_data.direction.x = direction.x;
             view_data.direction.y = direction.y;
-            view_data.bb = view_data.view->get_bounding_box();
 
             view_data.transformer = std::make_shared<wf::scene::view_2d_transformer_t>(view_data.view);
             view_data.view->get_transformed_node()->add_transformer(view_data.transformer, wf::TRANSFORMER_2D, dodge_transformer_name);
@@ -185,9 +197,8 @@ class wayfire_dodge : public wf::plugin_interface_t
         return std::sqrt(x * x + y * y);
     }
 
-    wf::pointf_t compute_direction(wayfire_view from, wayfire_view to)
+    wf::pointf_t compute_direction(wayfire_view from, wayfire_view to, wf::geometry_t from_bb)
     {
-        auto from_bb   = from->get_bounding_box();
         auto to_bb     = to->get_bounding_box();
         auto from_center = wf::point_t{from_bb.x + from_bb.width / 2, from_bb.y + from_bb.height / 2};
         auto to_center   = wf::point_t{to_bb.x + to_bb.width / 2, to_bb.y + to_bb.height / 2};
@@ -250,6 +261,17 @@ class wayfire_dodge : public wf::plugin_interface_t
             auto from_bb = view_data.bb;
             double move_dist_x = std::min(from_bb.x + from_bb.width - to_bb.x, to_bb.x + to_bb.width - from_bb.x);
             double move_dist_y = std::min(from_bb.y + from_bb.height - to_bb.y, to_bb.y + to_bb.height - from_bb.y);
+
+            if (std::string(direction) == "cardinal")
+            {
+                if (move_dist_x < move_dist_y)
+                {
+                    move_dist_y = 0;
+                } else
+                {
+                    move_dist_x = 0;
+                }
+            }
 
             double move_x = move_dist_x * view_data.direction.x;
             double move_y = move_dist_y * view_data.direction.y;
