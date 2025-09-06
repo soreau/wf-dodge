@@ -67,7 +67,7 @@ class wayfire_dodge : public wf::plugin_interface_t
     wf::option_wrapper_t<wf::animation_description_t> animation_duration{"dodge/duration"};
     wf::animation::simple_animation_t progression{animation_duration};
     bool view_to_focused;
-    std::set<wf::output_t*> active_outputs;
+    wf::output_t *view_to_output;
 
   public:
     void init() override
@@ -130,6 +130,9 @@ class wayfire_dodge : public wf::plugin_interface_t
         // Keep the current focused view in front initially (this prevents jumping)
         view_bring_to_front(last_focused_view);
 
+        view_to_output = view_to->get_output();
+        view_to_output->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
+
         // Setup overlapping views with fan directions
         for (size_t i = 0; i < overlapping_views.size(); ++i)
         {
@@ -144,12 +147,6 @@ class wayfire_dodge : public wf::plugin_interface_t
             view_data.view->get_transformed_node()->add_transformer(view_data.transformer, 
                                                                    wf::TRANSFORMER_2D, 
                                                                    dodge_transformer_name);
-            
-            if (active_outputs.find(view_data.view->get_output()) == active_outputs.end())
-            {
-                view_data.view->get_output()->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
-                active_outputs.insert(view_data.view->get_output());
-            }
             
             views_from.push_back(view_data);
         }
@@ -221,12 +218,8 @@ class wayfire_dodge : public wf::plugin_interface_t
             view_data.view->get_transformed_node()->rem_transformer(dodge_transformer_name);
         }
 
-        for (auto& output : active_outputs)
-        {
-            output->render->rem_effect(&dodge_animation_hook);
-        }
+        view_to_output->render->rem_effect(&dodge_animation_hook);
 
-        active_outputs.clear();
         views_from.clear();
         view_to = nullptr;
     }
@@ -241,6 +234,8 @@ class wayfire_dodge : public wf::plugin_interface_t
         auto to_bb = view_to->get_bounding_box();
 
         double progress = progression.progress();
+        progress = (1.0 - progress) * (1.0 - progress);
+        progress = 1.0 - progress;
 
         // Animate overlapping views with speed-adjusted timing
         for (auto& view_data : views_from)
