@@ -68,6 +68,7 @@ class wayfire_dodge : public wf::plugin_interface_t
     wf::animation::simple_animation_t progression{animation_duration};
     bool view_to_focused;
     wf::output_t *view_to_output;
+    bool hook_set = false;
 
   public:
     void init() override
@@ -83,11 +84,6 @@ class wayfire_dodge : public wf::plugin_interface_t
         if (ev->view == wf::get_core().seat->get_active_view())
         {
             last_focused_view = wf::get_core().seat->get_active_view();
-            return;
-        }
-
-        if (progression.running())
-        {
             return;
         }
 
@@ -130,8 +126,12 @@ class wayfire_dodge : public wf::plugin_interface_t
         // Keep the current focused view in front initially (this prevents jumping)
         view_bring_to_front(last_focused_view);
 
-        view_to_output = view_to->get_output();
-        view_to_output->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
+        if (!hook_set)
+        {
+            view_to_output = view_to->get_output();
+            view_to_output->render->add_effect(&dodge_animation_hook, wf::OUTPUT_EFFECT_PRE);
+            hook_set = true;
+        }
 
         // Setup overlapping views with fan directions
         for (size_t i = 0; i < overlapping_views.size(); ++i)
@@ -219,6 +219,7 @@ class wayfire_dodge : public wf::plugin_interface_t
         }
 
         view_to_output->render->rem_effect(&dodge_animation_hook);
+        hook_set = false;
 
         views_from.clear();
         view_to = nullptr;
