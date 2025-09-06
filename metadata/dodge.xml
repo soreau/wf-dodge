@@ -4,5 +4,10 @@
 		<_short>Dodge Focus Animation</_short>
 		<_long>Toplevel views move around each other when focused.</_long>
 		<category>Effects</category>
+		<option name="duration" type="animation">
+			<_short>Duration</_short>
+			<_long>Sets the animation duration in milliseconds.</_long>
+			<default>350ms linear</default>
+		</option>
 	</plugin>
 </wayfire>

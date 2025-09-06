@@ -64,7 +64,8 @@ class wayfire_dodge : public wf::plugin_interface_t
 {
     std::vector<dodge_view_data> views_from;
     wayfire_view view_to, last_focused_view;
-    wf::animation::simple_animation_t progression{wf::create_option(1000)};
+    wf::option_wrapper_t<wf::animation_description_t> animation_duration{"dodge/duration"};
+    wf::animation::simple_animation_t progression{animation_duration};
     bool view_to_focused;
     std::set<wf::output_t*> active_outputs;
 
