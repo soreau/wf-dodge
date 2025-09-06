@@ -47,6 +47,7 @@ static std::string dodge_transformer_name = "dodge";
 struct dodge_view_data
 {
     wayfire_view view;
+    wf::geometry_t bb;
     std::shared_ptr<wf::scene::view_2d_transformer_t> transformer;
     wf::pointf_t direction;
 };
@@ -143,6 +144,7 @@ class wayfire_dodge : public wf::plugin_interface_t
 
             view_data.direction.x = direction.x;
             view_data.direction.y = direction.y;
+            view_data.bb = view_data.view->get_bounding_box();
             
             view_data.view->get_transformed_node()->add_transformer(view_data.transformer, 
                                                                    wf::TRANSFORMER_2D, 
@@ -194,9 +196,11 @@ class wayfire_dodge : public wf::plugin_interface_t
         {
             return wf::pointf_t{0, 0};
         }
-        x /= m;
-        y /= m;
-        return wf::pointf_t{std::asin(x), std::asin(y)};
+        auto nx = x / m;
+        auto ny = y / m;
+        x = nx * std::abs(1.0 / nx);
+        y = ny * std::abs(1.0 / ny);
+        return wf::pointf_t{x, y};
     }
 
     void damage_views()
@@ -241,9 +245,9 @@ class wayfire_dodge : public wf::plugin_interface_t
         // Animate overlapping views with speed-adjusted timing
         for (auto& view_data : views_from)
         {
-            auto from_bb = view_data.view->get_bounding_box();
-            auto move_dist_x = std::max(from_bb.width, to_bb.width);
-            auto move_dist_y = std::max(from_bb.height, to_bb.height);
+            auto from_bb = view_data.bb;
+            double move_dist_x = std::min(from_bb.x + from_bb.width - to_bb.x, to_bb.x + to_bb.width - from_bb.x);
+            double move_dist_y = std::min(from_bb.y + from_bb.height - to_bb.y, to_bb.y + to_bb.height - from_bb.y);
 
             double move_x = move_dist_x * view_data.direction.x;
             double move_y = move_dist_y * view_data.direction.y;
