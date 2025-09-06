@@ -139,16 +139,18 @@ class wayfire_dodge : public wf::plugin_interface_t
         {
             dodge_view_data view_data;
             view_data.view = overlapping_views[i];
-            view_data.transformer = std::make_shared<wf::scene::view_2d_transformer_t>(view_data.view);
+            if (view_data.view->get_transformed_node()->get_transformer(dodge_transformer_name))
+            {
+                continue;
+            }
             auto direction = compute_direction(overlapping_views[i], view_to);
 
             view_data.direction.x = direction.x;
             view_data.direction.y = direction.y;
             view_data.bb = view_data.view->get_bounding_box();
-            
-            view_data.view->get_transformed_node()->add_transformer(view_data.transformer, 
-                                                                   wf::TRANSFORMER_2D, 
-                                                                   dodge_transformer_name);
+
+            view_data.transformer = std::make_shared<wf::scene::view_2d_transformer_t>(view_data.view);
+            view_data.view->get_transformed_node()->add_transformer(view_data.transformer, wf::TRANSFORMER_2D, dodge_transformer_name);
             
             views_from.push_back(view_data);
         }
