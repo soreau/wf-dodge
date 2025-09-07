@@ -95,7 +95,8 @@ class wayfire_dodge : public wf::plugin_interface_t
             return;
         }
 
-        auto to_bb = view_to->get_bounding_box();
+        auto toplevel = wf::toplevel_cast(view_to);
+        auto to_bb = toplevel->get_geometry();
 
         // Find overlapping views
         std::vector<wayfire_view> overlapping_views;
@@ -106,16 +107,16 @@ class wayfire_dodge : public wf::plugin_interface_t
                 continue;
             }
 
-            auto toplevel = wf::toplevel_cast(view);
+            toplevel = wf::toplevel_cast(view);
             if (!toplevel)
             {
                 continue;
             }
 
-            auto view_bb = view->get_bounding_box();
+            auto from_bb = toplevel->get_geometry();
 
             if ((wf::get_focus_timestamp(view_to) < wf::get_focus_timestamp(view)) &&
-                boxes_intersect(to_bb, view_bb))
+                boxes_intersect(to_bb, from_bb))
             {
                 overlapping_views.push_back(view);
             }
